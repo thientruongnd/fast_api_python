@@ -15,6 +15,10 @@ pip install -r requirements.txt
 ```
 
 ## Running the app
-`uvicorn main:app --reload`
+```bash
+uvicorn main:app --reload
+```
 `OR`
-`python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
