@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import (
     Body,
+    Depends,
     FastAPI,
     Query,
     Path,
@@ -14,12 +15,21 @@ from fastapi import (
     Form,
     File,
     UploadFile,
+    HTTPException,
+    Request,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, HttpUrl, EmailStr
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import HTMLResponse
 
 app = FastAPI()
-
 
 # @app.get("/")
 # async def root():
@@ -518,32 +528,320 @@ app = FastAPI()
 #     return {"username": username}
 
 ## Part 17 - Request Files
-@app.post("/files/")
-async def create_file(
-    files: list[bytes] = File(..., description="A file read as bytes")
-):
-    return {"file_sizes": [len(file) for file in files]}
+# @app.post("/files/")
+# async def create_file(
+#     files: list[bytes] = File(..., description="A file read as bytes")
+# ):
+#     return {"file_sizes": [len(file) for file in files]}
+#
+#
+# @app.post("/uploadfile/")
+# async def create_upload_file(
+#     files: list[UploadFile] = File(..., description="A file read as UploadFile")
+# ):
+#     return {"filename": [file.filename for file in files]}
+#
+#
+# @app.get("/")
+# async def main():
+#     content = """
+# <body>
+# <form action="/files/" enctype="multipart/form-data" method="post">
+# <input name="files" type="file" multiple>
+# <input type="submit">
+# </form>
+# <form action="/uploadfiles/" enctype="multipart/form-data" method="post">
+# <input name="files" type="file" multiple>
+# <input type="submit">
+# </form>
+# </body>
+#     """
+#     return HTMLResponse(content=content)
+
+## Part 18 - Request Forms and Files
+# @app.post("/files/")
+# async def create_file(
+#     file: bytes = File(...),
+#     fileb: UploadFile = File(...),
+#     token: str = Form(...),
+#     hello: str = Body(...),
+# ):
+#     return {
+#         "file_size": len(file),
+#         "token": token,
+#         "fileb_content_type": fileb.content_type,
+#         "hello": hello,
+#     }
 
 
-@app.post("/uploadfile/")
-async def create_upload_file(
-    files: list[UploadFile] = File(..., description="A file read as UploadFile")
-):
-    return {"filename": [file.filename for file in files]}
+## Part 19 - Handling Errors
+# items = {"foo": "The Foo Wrestlers"}
+#
+#
+# @app.get("/items/{item_id}")
+# async def read_item(item_id: str):
+#     if item_id not in items:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Item not found",
+#             headers={"X-Error": "There goes my error"},
+#         )
+#     return {"item": items[item_id]}
+#
+#
+# class UnicornException(Exception):
+#     def __init__(self, name: str):
+#         self.name = name
+#
+#
+# @app.exception_handler(UnicornException)
+# async def unicorn_exception_handler(request: Request, exc: UnicornException):
+#     return JSONResponse(
+#         status_code=418,
+#         content={"message": f"Oops! {exc.name} did something. There goes a rainbow..."},
+#     )
+#
+#
+# @app.get("/unicorns/{name}")
+# async def read_unicorns(name: str):
+#     if name == "yolo":
+#         raise UnicornException(name=name)
+#     return {"unicorn_name": name}
+#
+#
+# # @app.exception_handler(RequestValidationError)
+# # async def validation_exception_handler(request, exc):
+# #     return PlainTextResponse(str(exc), status_code=400)
+# #
+# #
+# # @app.exception_handler(StarletteHTTPException)
+# # async def http_exception_handler(request, exc):
+# #     return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
+# #
+# #
+# # @app.get("/validation_items/{item_id}")
+# # async def read_validation_items(item_id: int):
+# #     if item_id == 3:
+# #         raise HTTPException(status_code=418, detail="Nope! I don't like 3.")
+# #     return {"item_id": item_id}
+#
+#
+# # @app.exception_handler(RequestValidationError)
+# # async def validation_exception_handler(request: Request, exc: RequestValidationError):
+# #     return JSONResponse(
+# #         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+# #         content=jsonable_encoder({"detail": exc.errors(), "blahblah": exc.body}),
+# #     )
+# #
+# #
+# # class Item(BaseModel):
+# #     title: str
+# #     size: int
+# #
+# #
+# # @app.post("/items/")
+# # async def create_item(item: Item):
+# #     return item
+#
+#
+# @app.exception_handler(StarletteHTTPException)
+# async def custom_http_exception_handler(request, exc):
+#     print(f"OMG! An HTTP error!: {repr(exc)}")
+#     return await http_exception_handler(request, exc)
+#
+#
+# @app.exception_handler(RequestValidationError)
+# async def validation_exception_handler(request, exc):
+#     print(f"OMG! The client sent invalid data!: {exc}")
+#     return await request_validation_exception_handler(request, exc)
+#
+#
+# @app.get("/blah_items/{item_id}")
+# async def read_items(item_id: int):
+#     if item_id == 3:
+#         raise HTTPException(status_code=418, detail="Nope! I don't like 3.")
+#     return {"item_id": item_id}
+
+## Part 20 - Path Operation Configuration
+# class Item(BaseModel):
+#     name: str
+#     description: str | None = None
+#     price: float
+#     tax: float | None = None
+#     tags: set[str] = set()
+#
+#
+# class Tags(Enum):
+#     items = "items"
+#     users = "users"
+#
+#
+# @app.post(
+#     "/items/",
+#     response_model=Item,
+#     status_code=status.HTTP_201_CREATED,
+#     tags=[Tags.items],
+#     summary="Create an Item-type item",
+#     # description="Create an item with all the information: "
+#     # "name; description; price; tax; and a set of "
+#     # "unique tags",
+#     response_description="The created item",
+# )
+# async def create_item(item: Item):
+#     """
+#     Create an item with all the information:
+#
+#     - **name**: each item must have a name
+#     - **description**: a long description
+#     - **price**: required
+#     - **tax**: if the item doesn't have tax, you can omit this
+#     - **tags**: a set of unique tag strings for this item
+#     """
+#     return item
+#
+#
+# @app.get("/items/", tags=[Tags.items])
+# async def read_items():
+#     return [{"name": "Foo", "price": 42}]
+#
+#
+# @app.get("/users/", tags=[Tags.users])
+# async def read_users():
+#     return [{"username": "PhoebeBuffay"}]
+#
+#
+# @app.get("/elements/", tags=[Tags.items], deprecated=True)
+# async def read_elements():
+#     return [{"item_id": "Foo"}]
+
+## Part 21a - JSON Compatible Encoder
+# class Item(BaseModel):
+#     name: str | None = None
+#     description: str | None = None
+#     price: float | None = None
+#     tax: float = 10.5
+#     tags: list[str] = []
+#
+#
+# items = {
+#     "foo": {"name": "Foo", "price": 50.2},
+#     "bar": {
+#         "name": "Bar",
+#         "description": "The bartenders",
+#         "price": 62,
+#         "tax": 20.2,
+#     },
+#     "baz": {
+#         "name": "Baz",
+#         "description": None,
+#         "price": 50.2,
+#         "tax": 10.5,
+#         "tags": [],
+#     },
+# }
+#
+#
+# @app.get("/items/{item_id}", response_model=Item)
+# async def read_item(item_id: str):
+#     return items.get(item_id)
+#
+#
+# @app.put("/items/{item_id}", response_model=Item)
+# def update_item(item_id: str, item: Item):
+#     update_item_encoded = jsonable_encoder(item)
+#     items[item_id] = update_item_encoded
+#     return update_item_encoded
+#
+#
+# @app.patch("/items/{item_id}", response_model=Item)
+# def patch_item(item_id: str, item: Item):
+#     stored_item_data = items.get(item_id)
+#     if stored_item_data is not None:
+#         stored_item_model = Item(**stored_item_data)
+#     else:
+#         stored_item_model = Item()
+#     update_data = item.dict(exclude_unset=True)
+#     updated_item = stored_item_model.copy(update=update_data)
+#     items[item_id] = jsonable_encoder(updated_item)
+#     return updated_item
+
+## Part 22 - Dependencies Intro
+# async def hello():
+#     return "world"
+#
+#
+# async def common_parameters(
+#     q: str | None = None, skip: int = 0, limit: int = 100, blah: str = Depends(hello)
+# ):
+#     return {"q": q, "skip": skip, "limit": limit, "hello": blah}
+#
+#
+# @app.get("/items/")
+# async def read_items(commons: dict = Depends(common_parameters)):
+#     return commons
+#
+#
+# @app.get("/users/")
+# async def read_users(commons: dict = Depends(common_parameters)):
+#     return commons
+
+## Part 23 - Classes as Dependencies
+# fake_items_db = [{"item_name": "Foo"}, {"item_name": "Bar"}, {"item_name": "Baz"}]
+#
+#
+# class CommonQueryParams:
+#     def __init__(self, q: str | None = None, skip: int = 0, limit: int = 100):
+#         self.q = q
+#         self.skip = skip
+#         self.limit = limit
+#
+#
+# @app.get("/items/{item_id}")
+# async def read_items(commons: CommonQueryParams = Depends()):
+#     response = {}
+#     if commons.q:
+#         response.update({"q": commons.q})
+#     items = fake_items_db[commons.skip : commons.skip + commons.limit]
+#     response.update({"items": items})
+#     return response
+
+## Part 24 - Sub-Dependencies
+# def query_extractor(q: str | None = None):
+#     return q
+#
+#
+# def query_or_body_extractor(
+#     q: str = Depends(query_extractor), last_query: str | None = Body(None)
+# ):
+#     if q:
+#         return q
+#     return last_query
+#
+#
+# @app.post("/item")
+# async def try_query(query_or_body: str = Depends(query_or_body_extractor)):
+#     return {"q_or_body": query_or_body}
+
+## Part 25 - Dependencies in path operation decorators
+async def verify_token(x_token: str = Header(...)):
+    if x_token != "fake-super-secret-token":
+        raise HTTPException(status_code=400, detail="X-Token header invalid")
 
 
-@app.get("/")
-async def main():
-    content = """
-<body>
-<form action="/files/" enctype="multipart/form-data" method="post">
-<input name="files" type="file" multiple>
-<input type="submit">
-</form>
-<form action="/uploadfiles/" enctype="multipart/form-data" method="post">
-<input name="files" type="file" multiple>
-<input type="submit">
-</form>
-</body>
-    """
-    return HTMLResponse(content=content)
+async def verify_key(x_key: str = Header(...)):
+    if x_key != "fake-super-secret-key":
+        raise HTTPException(status_code=400, detail="X-Key header invalid")
+    return x_key
+
+
+# app = FastAPI(dependencies=[Depends(verify_token), Depends(verify_key)])
+
+
+@app.get("/items/", dependencies=[Depends(verify_token), Depends(verify_key)])
+async def read_items():
+    return [{"item": "Foo"}, {"item": "Bar"}]
+
+
+@app.get("/users/", dependencies=[Depends(verify_token), Depends(verify_key)])
+async def read_users():
+    return [{"username": "Rick"}, {"username": "Morty"}]
