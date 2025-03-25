@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta
 from enum import Enum
+import time
 from typing import Literal, Union
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from fastapi import (
     UploadFile,
     HTTPException,
     Request,
+    BackgroundTasks,
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -24,12 +26,17 @@ from fastapi.exception_handlers import (
     http_exception_handler,
     request_validation_exception_handler,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, HttpUrl, EmailStr
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse
 
-app = FastAPI()
+# app = FastAPI()
 
 # @app.get("/")
 # async def root():
@@ -823,25 +830,352 @@ app = FastAPI()
 #     return {"q_or_body": query_or_body}
 
 ## Part 25 - Dependencies in path operation decorators
-async def verify_token(x_token: str = Header(...)):
-    if x_token != "fake-super-secret-token":
-        raise HTTPException(status_code=400, detail="X-Token header invalid")
+# async def verify_token(x_token: str = Header(...)):
+#     if x_token != "fake-super-secret-token":
+#         raise HTTPException(status_code=400, detail="X-Token header invalid")
+#
+#
+# async def verify_key(x_key: str = Header(...)):
+#     if x_key != "fake-super-secret-key":
+#         raise HTTPException(status_code=400, detail="X-Key header invalid")
+#     return x_key
+#
+#
+# # app = FastAPI(dependencies=[Depends(verify_token), Depends(verify_key)])
+#
+#
+# @app.get("/items/", dependencies=[Depends(verify_token), Depends(verify_key)])
+# async def read_items():
+#     return [{"item": "Foo"}, {"item": "Bar"}]
+#
+#
+# @app.get("/users/", dependencies=[Depends(verify_token), Depends(verify_key)])
+# async def read_users():
+#     return [{"username": "Rick"}, {"username": "Morty"}]
+
+## Part 26 - Security, First Steps
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+#
+# fake_users_db = {
+#     "johndoe": dict(
+#         username="johndoe",
+#         full_name="John Doe",
+#         email="johndoe@example.com",
+#         hashed_password="fakehashedsecret",
+#         disabled=False,
+#     ),
+#     "alice": dict(
+#         username="alice",
+#         full_name="Alice Wonderson",
+#         email="alice@example.com",
+#         hashed_password="fakehashedsecret2",
+#         disabled=True,
+#     ),
+# }
+#
+#
+# def fake_hash_password(password: str):
+#     return f"fakehashed{password}"
+#
+#
+# class User(BaseModel):
+#     username: str
+#     email: str | None = None
+#     full_name: str | None = None
+#     disabled: bool | None = None
+#
+#
+# class UserInDB(User):
+#     hashed_password: str
+#
+#
+# def get_user(db, username: str):
+#     if username in db:
+#         user_dict = db[username]
+#         return UserInDB(**user_dict)
+#
+#
+# def fake_decode_token(token):
+#     return get_user(fake_users_db, token)
+#
+#
+# async def get_current_user(token: str = Depends(oauth2_scheme)):
+#     user = fake_decode_token(token)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication credentials",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+#     return user
+#
+#
+# async def get_current_active_user(current_user: User = Depends(get_current_user)):
+#     if current_user.disabled:
+#         raise HTTPException(status_code=400, detail="Inactive user")
+#     return current_user
+#
+#
+# @app.post("/token")
+# async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+#     user_dict = fake_users_db.get(form_data.username)
+#     if not user_dict:
+#         raise HTTPException(status_code=400, detail="Incorrect username or password")
+#     user = UserInDB(**user_dict)
+#     hashed_password = fake_hash_password(form_data.password)
+#     if not hashed_password == user.hashed_password:
+#         raise HTTPException(status_code=400, detail="Incorrect username or password")
+#
+#     return {"access_token": user.username, "token_type": "bearer"}
+#
+#
+# @app.get("/users/me")
+# async def get_me(current_user: User = Depends(get_current_active_user)):
+#     return current_user
+#
+#
+# @app.get("/items/")
+# async def read_items(token: str = Depends(oauth2_scheme)):
+#     return {"token": token}
+
+## Part 27 - Security, OAuth2 Bearer and JWT
+# SECRET_KEY = "thequickbrownfoxjumpedoverthelazydog"
+# ALGORITHM = "HS256"
+# ACCESS_TOKEN_EXPIRE_MINUTES = 30
+#
+# fake_users_db = {
+#     "johndoe": {
+#         "username": "johndoe",
+#         "full_name": "John Doe",
+#         "email": "johndoe@example.com",
+#         "hashed_password": "$2b$12$tJD64mRe0bd/UNdAANZtvuOnWDKScbVtXA9lB6X7arZxJQbAyMbd2",
+#         "disabled": False,
+#     }
+# }
+#
+#
+# class Token(BaseModel):
+#     access_token: str
+#     token_type: str
+#
+#
+# class TokenData(BaseModel):
+#     username: str | None = None
+#
+#
+# class User(BaseModel):
+#     username: str
+#     email: str | None = None
+#     full_name: str | None = None
+#     disabled: bool | None = None
+#
+#
+# class UserInDB(User):
+#     hashed_password: str
+#
+#
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+#
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+#
+#
+# def verify_password(plain_password, hashed_password):
+#     return pwd_context.verify(plain_password, hashed_password)
+#
+#
+# def get_password_hash(password):
+#     return pwd_context.hash(password)
+#
+#
+# def get_user(db, username: str):
+#     if username in db:
+#         user_dict = db[username]
+#         return UserInDB(**user_dict)
+#
+#
+# def authenticate_user(fake_db, username: str, password: str):
+#     user = get_user(fake_db, username)
+#     if not User:
+#         return False
+#     if not verify_password(password, user.hashed_password):
+#         return False
+#     return user
+#
+#
+# def create_access_token(data: dict, expires_delta: timedelta | None = None):
+#     to_encode = data.copy()
+#     if expires_delta:
+#         expire = datetime.utcnow() + expires_delta
+#     else:
+#         expire = datetime.utcnow() + timedelta(minutes=15)
+#     to_encode.update({"exp": expire})
+#     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+#     return encoded_jwt
+#
+#
+# async def get_current_user(token: str = Depends(oauth2_scheme)):
+#     credentials_exception = HTTPException(
+#         status_code=status.HTTP_401_UNAUTHORIZED,
+#         detail="Could not validate credentials",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+#
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         username: str = payload.get("sub")
+#         if username is None:
+#             raise credentials_exception
+#         token_data = TokenData(username=username)
+#     except JWTError:
+#         raise credentials_exception
+#     user = get_user(fake_users_db, username=token_data.username)
+#     if user is None:
+#         raise credentials_exception
+#     return user
+#
+#
+# async def get_current_active_user(current_user: User = Depends(get_current_user)):
+#     if current_user.disabled:
+#         raise HTTPException(status_code=400, detail="Inactive User")
+#     return current_user
+#
+#
+# @app.post("/token", response_model=Token)
+# async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+#     user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+#     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#     access_token = create_access_token(
+#         data={"sub": user.username}, expires_delta=access_token_expires
+#     )
+#     return {"access_token": access_token, "token_type": "bearer"}
+#
+#
+# @app.get("/users/me", response_model=User)
+# async def read_users_me(current_user: User = Depends(get_current_active_user)):
+#     return current_user
+#
+#
+# @app.get("/users/me/items")
+# async def read_own_items(current_user: User = Depends(get_current_active_user)):
+#     return [{"item_id": "Foo", "owner": current_user.username}]
+
+## Part 28 - Middleware and CORS
+# class MyMiddleware(BaseHTTPMiddleware):
+#     async def dispatch(self, request: Request, call_next):
+#         start_time = time.time()
+#         response = await call_next(request)
+#         process_time = time.time() - start_time
+#         response.headers["X-Process-Time"] = str(process_time)
+#         return response
+#
+#
+# origins = ["http://localhost:8000", "http://localhost:3000"]
+# app.add_middleware(MyMiddleware)
+# app.add_middleware(CORSMiddleware, allow_origins=origins)
+#
+# @app.get("/blah")
+# async def blah():
+#     return {"hello": "world"}
+
+## Part 31 - Background Tasks
+# import time
 
 
-async def verify_key(x_key: str = Header(...)):
-    if x_key != "fake-super-secret-key":
-        raise HTTPException(status_code=400, detail="X-Key header invalid")
-    return x_key
+# def write_notification(email: str, message=""):
+#     with open("log.txt", mode="w") as email_file:
+#         content = f"notification for {email}: {message}"
+#         time.sleep(5)
+#         email_file.write(content)
+#
+#
+# @app.post("/send-notification/{email}", status_code=202)
+# async def send_notification(email: str, background_tasks: BackgroundTasks):
+#     background_tasks.add_task(write_notification, email, message="some notification")
+#     return {"message": "Notification sent in the background"}
+#
+#
+# def write_log(message: str):
+#     with open("log.txt", mode="a") as log:
+#         log.write(message)
+#
+#
+# def get_query(background_tasks: BackgroundTasks, q: str | None = None):
+#     if q:
+#         message = f"found query: {q}\n"
+#         background_tasks.add_task(write_log, message)
+#     return q
+#
+#
+# @app.post("/send-notification/{email}")
+# async def send_notification(
+#     email: str, background_tasks: BackgroundTasks, q: str = Depends(get_query)
+# ):
+#     message = f"message to {email}\n"
+#     background_tasks.add_task(write_log, message)
+#     return {"message": "Message sent", "query": q}
+
+## 32 - Metadata and Docs URLs
+description = """
+ChimichangApp API helps you do awesome stuff. 🚀
+
+## Items
+
+You can **read items**.
+
+## Users
+
+You will be able to:
+
+* **Create users** (_not implemented_).
+* **Read users** (_not implemented_).
+"""
+
+tags_metadata = [
+    dict(
+        name="users",
+        description="Operations with users. The **login** logic is also here.",
+    ),
+    dict(
+        name="items",
+        description="Manage items. So _fancy_ they have their own docs.",
+        externalDocs=dict(
+            description="Items external docs", url="https://www.jvp.design"
+        ),
+    ),
+]
 
 
-# app = FastAPI(dependencies=[Depends(verify_token), Depends(verify_key)])
+app = FastAPI(
+    title="ChimichangApp",
+    description=description,
+    version="0.0.1",
+    terms_of_service="http://example.com/terms/",
+    contact=dict(
+        name="Deadpoolio the Amazing",
+        url="http://x-force.example.com/contact",
+        email="dp@x-force.example.com",
+    ),
+    license_info=dict(
+        name="Apache 2.0", url="https://www.apache.org/licenses/LICENSE-2.0.html"
+    ),
+    openapi_tags=tags_metadata,
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/hello-world",
+    redoc_url=None,
+)
 
 
-@app.get("/items/", dependencies=[Depends(verify_token), Depends(verify_key)])
+@app.get("/users", tags=["users"])
+async def get_users():
+    return [dict(name="Harry"), dict(name="Ron")]
+
+
+@app.get("/items/", tags=["items"])
 async def read_items():
-    return [{"item": "Foo"}, {"item": "Bar"}]
-
-
-@app.get("/users/", dependencies=[Depends(verify_token), Depends(verify_key)])
-async def read_users():
-    return [{"username": "Rick"}, {"username": "Morty"}]
+    return [dict(name="wand"), dict(name="flying broom")]
